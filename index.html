@@ -324,16 +324,19 @@
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:8px;">建議操作</div>
         <div class="data-row"><span class="data-key">正2調整金額</span><span class="data-val" id="rebal-adj-lev" style="font-weight:600;">—</span></div>
         <div class="data-row"><span class="data-key">防禦調整金額</span><span class="data-val" id="rebal-adj-def">—</span></div>
+        <div class="data-row"><span class="data-key">有效槓桿（扣借款）</span><span class="data-val" id="rebal-eff-lev">—</span></div>
+        <div class="data-row"><span class="data-key">凱利檢查</span><span class="data-val" id="rebal-kelly">—</span></div>
         <div style="margin-top:12px;padding:10px;border-radius:6px;background:rgba(56,189,248,0.06);border:0.5px solid rgba(56,189,248,0.2);">
           <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:4px;">再平衡時間</div>
           <div style="font-family:var(--mono);font-size:11px;color:var(--blue);">每年 12/31 固定執行一次</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">加碼期間只買不賣；有效槓桿超過上限才減碼</div>
           <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">上次查核：<span id="rebal-last-date" style="color:var(--text)">—</span></div>
         </div>
       </div>
       <!-- 加碼策略狀態 -->
       <div style="background:var(--bg-card2);border-radius:8px;padding:1rem;">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:8px;">加碼策略現況</div>
-        <div id="strategyPanel"></div>
+        <div id="strategyPanel2"></div>
       </div>
     </div>
   </div>
@@ -344,10 +347,14 @@
     <div class="card">
       <div class="card-title">加碼金計算（從債券+現金提撥）</div>
       <div class="data-row">
-        <span class="data-key">債券+現金淨資產（P6）</span>
+        <span class="data-key">加碼基準金額（本輪鎖定）</span>
         <span class="data-val" style="color:var(--blue)" id="add-base">—</span>
       </div>
-      <div style="margin:10px 0 6px;font-family:var(--mono);font-size:10px;color:var(--text-muted);">大盤從高點回撤 → 加碼金額</div>
+      <div class="data-row">
+        <span class="data-key">目前防禦池（00719B＋現金）</span>
+        <span class="data-val" style="color:var(--green)" id="add-pool">—</span>
+      </div>
+      <div style="margin:10px 0 6px;font-family:var(--mono);font-size:10px;color:var(--text-muted);">前高 −5% 起每跌 5% 加碼 20%（共 5 批）</div>
       <div id="add-levels"></div>
       <div style="margin-top:10px;padding:8px;background:rgba(245,158,11,0.08);border:0.5px solid rgba(245,158,11,0.3);border-radius:6px;">
         <div style="font-family:var(--mono);font-size:10px;color:var(--amber);margin-bottom:3px;">目前大盤回撤</div>
@@ -360,12 +367,12 @@
       <div class="card-title">加碼部位追蹤</div>
       <div class="data-row"><span class="data-key">加碼批次</span><span class="data-val" style="color:var(--blue)" id="track-batch">—</span></div>
       <div class="data-row"><span class="data-key">加碼總金額</span><span class="data-val" style="color:var(--amber)" id="track-total">—</span></div>
-      <div class="data-row"><span class="data-key">加碼平均成本</span><span class="data-val" id="track-cost">—</span></div>
-      <div class="data-row"><span class="data-key">加碼部位現值</span><span class="data-val" style="color:var(--green)" id="track-value">—</span></div>
+      <div class="data-row"><span class="data-key">加碼報酬率（合計｜631L｜685L）</span><span class="data-val" id="track-cost">—</span></div>
+      <div class="data-row"><span class="data-key">加碼部位現值（損益）</span><span class="data-val" style="color:var(--green)" id="track-value">—</span></div>
       <div style="margin-top:12px;padding:10px;border-radius:6px;" id="track-signal-box">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:4px;">前高點位（觸發加碼時台指高點）</div>
         <div style="font-family:var(--mono);font-size:13px;font-weight:600;" id="track-prev-high">—</div>
-        <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:6px;margin-bottom:2px;">目前台指高點</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:6px;margin-bottom:2px;">目前台指</div>
         <div style="font-family:var(--mono);font-size:13px;font-weight:600;" id="track-curr-high">—</div>
         <div style="font-family:var(--mono);font-size:13px;font-weight:600;margin-top:8px;" id="track-status">—</div>
         <div style="font-family:var(--mono);font-size:11px;margin-top:4px;" id="track-action">—</div>
@@ -459,25 +466,19 @@ async function loadDashboard() {
 
     try { renderFoxconnMini(); } catch(e) { console.warn('renderFoxconnMini 失敗:', e); }
 
-    try {
-      const cRows = coreTable.rows;
-      const rc = (ri, ci) => { try { return cRows[ri] && cRows[ri].c[ci] ? cRows[ri].c[ci].v : null; } catch(e){ return null; } };
-      const netCash   = rc(3, 14);  // 現金+債券淨資產(18239645)
-      const taiexHigh = rc(0, 1);   // B3 台指高點(48218)
-      const taiexNow  = rc(1, 1);   // B4 台指現點(45244)
-      const r3 = rc(0, 18);  // S3→row0 加碼批次
-      const r4 = rc(1, 18);  // S4→row1 加碼總金額
-      const r5 = rc(2, 18);  // S5→row2 加碼平均成本
-      const r6 = rc(3, 18);  // S6→row3 加碼部位現值
-      const r7 = rc(4, 18);  // S7→row4 前高點位
-      const r8 = rc(5, 18);  // S8→row5 目前台指高點(=B3)
-      renderAddon(netCash, taiexHigh, taiexNow);
-      renderTracker(r3, r4, r5, r6, r7, r8);
-    } catch(e) { console.warn('加碼追蹤失敗:', e); }
 
     try {
       renderRebal(coreTable);
     } catch(e) { console.warn('renderRebal 失敗:', e); }
+
+    setLoading('讀取加碼計畫...');
+    try {
+      const [coreGrid, planGrid] = await Promise.all([
+        fetchCSV('核心資產總表', 'A1:U30'),
+        fetchCSV('加碼計畫', 'A1:O29'),
+      ]);
+      renderPlan(coreGrid, planGrid);
+    } catch(e) { console.warn('加碼計畫讀取失敗:', e); }
 
     hideLoading();
   } catch(e) {
@@ -693,28 +694,7 @@ function renderCore(table) {
     document.getElementById('foxconn-roi').textContent    = foxconn.roi ? (foxconn.roi >= 0 ? '+' : '') + (foxconn.roi * 100).toFixed(2) + '%' : '—';
   }
 
-  // ── 加碼策略 ──
-  const taiexRetPct = Math.abs(((tNow / tHigh) - 1) * 100);
-  const strategies = [
-    { label: '正常',       drop: 0,    color: '#10b981' },
-    { label: '下跌初期',   drop: 10,   color: '#f59e0b' },
-    { label: '跌幅加深',   drop: 12.5, color: '#f97316' },
-    { label: '中度',       drop: 15,   color: '#ef4444' },
-    { label: '技術性熊市', drop: 20,   color: '#dc2626' },
-    { label: '股災',       drop: 25,   color: '#b91c1c' },
-  ];
-  let currentStage = strategies[0];
-  for (let s of strategies) { if (taiexRetPct >= s.drop) currentStage = s; }
-  const sp = document.getElementById('strategyPanel');
-  sp.innerHTML = `<div style="background:${currentStage.color}22;border:0.5px solid ${currentStage.color}55;border-radius:6px;padding:10px 12px;margin-bottom:10px;">
-    <div style="font-family:var(--mono);font-size:10px;color:${currentStage.color};margin-bottom:4px;">目前階段</div>
-    <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:${currentStage.color};">${currentStage.label}</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">大盤回撤 ${taiexRetPct.toFixed(1)}%（高點 ${Math.round(tHigh).toLocaleString()}）</div>
-  </div>` + strategies.map(s => `
-    <div class="data-row" style="${s.label === currentStage.label ? 'background:' + s.color + '11;border-radius:4px;padding:6px 8px;' : ''}">
-      <span class="data-key" style="color:${s.label === currentStage.label ? s.color : ''}">${s.label}</span>
-      <span style="font-family:var(--mono);font-size:10px;color:${s.color}">-${s.drop}%</span>
-    </div>`).join('');
+  // 加碼策略改由 renderPlan() 讀取「加碼計畫」分頁
 
   // ── 配置 ──
   const ap = attackPct || 0.65, dp = defPct || 0.35;
@@ -914,32 +894,179 @@ function renderRebal(coreTable) {
     adjDefEl.style.color = defAdj >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
-  // 加碼策略現況
-  const sp = document.getElementById('strategyPanel');
-  if (sp) {
-    const strategies = [
-      {label:'正常',       drop:0,    color:'#10b981'},
-      {label:'下跌初期',   drop:10,   color:'#f59e0b'},
-      {label:'跌幅加深',   drop:12.5, color:'#f97316'},
-      {label:'中度',       drop:15,   color:'#ef4444'},
-      {label:'技術性熊市', drop:20,   color:'#dc2626'},
-      {label:'股災',       drop:25,   color:'#b91c1c'},
-    ];
-    const taiexRetPct = Math.abs((window._taiexRet || 0) * 100);
-    let currentStage = strategies[0];
-    for (let s of strategies) { if (taiexRetPct >= s.drop) currentStage = s; }
-    sp.innerHTML = `<div style="background:${currentStage.color}22;border:0.5px solid ${currentStage.color}55;border-radius:6px;padding:10px 12px;margin-bottom:10px;">
-      <div style="font-family:var(--mono);font-size:10px;color:${currentStage.color};margin-bottom:4px;">目前加碼階段</div>
-      <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:${currentStage.color};">${currentStage.label}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">大盤回撤 ${taiexRetPct.toFixed(1)}%</div>
-    </div>` + strategies.map(s => `
-      <div class="data-row" style="${s.label===currentStage.label?'background:'+s.color+'11;border-radius:4px;padding:4px 8px;':''}">
-        <span class="data-key" style="color:${s.label===currentStage.label?s.color:''}">${s.label}</span>
-        <span style="font-family:var(--mono);font-size:10px;color:${s.color}">-${s.drop}%</span>
-      </div>`).join('');
-  }
+  // 加碼策略改由 renderPlan() 讀取「加碼計畫」分頁
 }
 
+
+// ── CSV 讀取（文字格式，避免 gviz 混合型別欄位被清成 null）──
+async function fetchCSV(sheetName, range) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=0&sheet=`
+    + encodeURIComponent(sheetName) + (range ? '&range=' + range : '') + '&_=' + Date.now();
+  const res = await fetch(url);
+  return parseCSV(await res.text());
+}
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i+1] === '\n') i++;
+      row.push(cur); rows.push(row); row = []; cur = '';
+    } else cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+// 以 A1 位址取值（grid 從 A1 開始）
+function gc(grid, addr) {
+  const m = /^([A-Z]+)(\d+)$/.exec(addr); if (!m) return '';
+  let col = 0; for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
+  const r = grid[parseInt(m[2], 10) - 1];
+  return r && r[col - 1] != null ? String(r[col - 1]).trim() : '';
+}
+function gn(grid, addr) {
+  const s = gc(grid, addr); if (!s) return null;
+  const neg = /^\(.*\)$/.test(s);
+  const n = parseFloat(s.replace(/[NT$,%\s()（）]/g, '').replace('−', '-'));
+  if (isNaN(n)) return null;
+  let v = s.includes('%') ? n / 100 : n;
+  return neg ? -v : v;
+}
+const money = v => v == null ? '—' : (v < 0 ? '-' : '') + 'NT$' + Math.abs(Math.round(v)).toLocaleString();
+const pct1  = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+
+function statusColor(s) {
+  if (!s) return 'var(--text-muted)';
+  if (s.includes('✅')) return 'var(--green)';
+  if (s.includes('🔔') || s.includes('⏸')) return 'var(--amber)';
+  if (s.includes('⚠') || s.includes('🔴')) return 'var(--red)';
+  if (s.includes('🎯')) return 'var(--green)';
+  return 'var(--text-muted)';
+}
+const STAGE_COLORS = ['#10b981', '#f59e0b', '#f97316', '#ef4444', '#dc2626', '#b91c1c'];
+
+function renderPlan(core, plan) {
+  // ── 加碼計畫分頁 ──
+  const prevHigh = gn(plan, 'B3'), now = gn(plan, 'B4');
+  const dd   = gn(plan, 'B5');               // 例：-0.0572
+  const base = gn(plan, 'B6'), pool = gn(plan, 'B7'), cap = gn(plan, 'B11');
+  const batches = [];
+  for (let r = 16; r <= 20; r++) {
+    batches.push({
+      n: r - 15, trig: gn(plan, 'B' + r), point: gn(plan, 'C' + r), amt: gn(plan, 'D' + r),
+      s631: gn(plan, 'F' + r), s685: gn(plan, 'H' + r), lev: gn(plan, 'I' + r),
+      status: gc(plan, 'J' + r), actual: gn(plan, 'O' + r),
+    });
+  }
+  const done = batches.filter(b => b.status.includes('已執行')).length;
+  const triggered = batches.filter(b => !b.status.includes('未觸發') && b.status !== '').length;
+  const next = batches.find(b => b.status.includes('未觸發'));
+  const invested = gn(plan, 'B22'), exitSig = gc(plan, 'B29');
+
+  // ── 核心資產總表 ──
+  const suggest = gc(core, 'S10');
+  const effLev = gn(core, 'J6'), kelly = gc(core, 'J7');
+  const adjLev = gn(core, 'M5'), adjDef = gn(core, 'M6'), rebalSt = gc(core, 'M7');
+  const levPct = gn(core, 'M3'), defPct = gn(core, 'M4');
+  let levMkt = 0, def719 = 0;
+  for (let r = 13; r <= 30; r++) {
+    const code = gc(core, 'A' + r), mkt = gn(core, 'G' + r), lx = gn(core, 'I' + r);
+    if (!code || mkt == null) continue;
+    if (lx === 2) levMkt += mkt;
+    if (code.includes('00719B')) def719 += mkt;
+  }
+  const cash = (gn(core, 'P6') || 0) - (gn(core, 'P5') || 0);
+  const defMkt = def719 + cash;
+
+  // ── 1) 加碼策略現況（兩個面板）──
+  const ddAbs = Math.abs((dd || 0) * 100);
+  const stageIdx = Math.min(triggered, 5);
+  const color = STAGE_COLORS[stageIdx];
+  const stageLabel = triggered === 0 ? '正常（未觸發）'
+    : (done < triggered ? `第 ${triggered} 批已觸發` : `已執行 ${done} / 5 批`);
+  const panelHTML = `<div style="background:${color}22;border:0.5px solid ${color}55;border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+      <div style="font-family:var(--mono);font-size:10px;color:${color};margin-bottom:4px;">目前加碼階段</div>
+      <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:${color};">${stageLabel}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">大盤回撤 ${ddAbs.toFixed(1)}%（前高 ${prevHigh ? Math.round(prevHigh).toLocaleString() : '—'}）${next ? '｜下一批 ' + Math.round(next.point).toLocaleString() : ''}</div>
+    </div>` + batches.map((b, i) => {
+      const c = STAGE_COLORS[i + 1], hit = !b.status.includes('未觸發');
+      return `<div class="data-row" style="${hit ? 'background:' + c + '11;border-radius:4px;padding:4px 8px;' : ''}">
+        <span class="data-key" style="color:${hit ? c : ''}">第${b.n}批 ${b.trig != null ? (b.trig * 100).toFixed(0) + '%' : ''}｜${b.point ? Math.round(b.point).toLocaleString() : '—'}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:${statusColor(b.status)}">${b.status || '—'}</span>
+      </div>`;
+    }).join('');
+  ['strategyPanel', 'strategyPanel2'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = panelHTML; });
+
+  // ── 2) 加碼金計算 ──
+  const set = (id, txt, col) => { const el = document.getElementById(id); if (el) { el.textContent = txt; if (col) el.style.color = col; } };
+  set('add-base', base ? money(base) : '尚未設定（首次觸發時填 B6）');
+  set('add-pool', money(pool));
+  set('add-current-dd', dd != null ? (dd * 100).toFixed(1) + '%' : '—');
+  set('add-trigger-status', suggest || '—', statusColor(suggest));
+  const lv = document.getElementById('add-levels');
+  if (lv) lv.innerHTML = batches.map((b, i) => {
+    const c = STAGE_COLORS[i + 1], hit = !b.status.includes('未觸發');
+    const shares = (b.s631 || b.s685) ? `00631L ${Math.round(b.s631 || 0).toLocaleString()} 股｜00685L ${Math.round(b.s685 || 0).toLocaleString()} 股` : '';
+    return `<div style="padding:5px 0;border-bottom:0.5px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-family:var(--mono);font-size:10px;color:${hit ? c : 'var(--text-muted)'}">${b.status.includes('已執行') ? '✅ ' : ''}第${b.n}批（${b.trig != null ? (b.trig * 100).toFixed(0) : ''}%｜${b.point ? Math.round(b.point).toLocaleString() : '—'}）</span>
+        <span style="font-family:var(--mono);font-size:11px;font-weight:500;color:${c}">${money(b.actual || b.amt)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-top:2px;">
+        <span>${b.status.includes('已執行') ? '實際投入' : shares}</span>
+        <span style="color:${statusColor(b.status)}">${b.status.replace(/^[^\s]+\s/, '') || ''}${b.lev != null && !b.status.includes('已執行') ? '｜槓桿 ' + pct1(b.lev) : ''}</span>
+      </div>
+    </div>`;
+  }).join('') + `<div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-top:6px;">槓桿上限 ${cap ? pct1(cap) : '—'}，超過時狀態顯示 ⚠️</div>`;
+
+  // ── 3) 加碼部位追蹤 ──
+  set('track-batch', gc(core, 'S3') || (done + ' / 5'));
+  set('track-total', invested ? money(invested) : '—');
+  set('track-cost', gc(core, 'S5') || '—');
+  set('track-value', gc(core, 'S6') || '—');
+  set('track-prev-high', prevHigh ? Math.round(prevHigh).toLocaleString() : '尚未填入');
+  set('track-curr-high', now ? Math.round(now).toLocaleString() : '—');
+  const box = document.getElementById('track-signal-box');
+  const recovered = invested > 0 && now >= prevHigh;
+  let st, stCol;
+  if (!invested) { st = '尚未啟動加碼'; stCol = 'var(--text-muted)'; }
+  else if (recovered) { st = '✅ 已回前高，賣出加碼部位'; stCol = 'var(--green)'; }
+  else { st = '⏳ 尚未回前高，繼續持有'; stCol = 'var(--amber)'; }
+  set('track-status', st, stCol);
+  set('track-action', recovered ? exitSig : (suggest || '—'), recovered ? 'var(--green)' : statusColor(suggest));
+  if (box) {
+    box.style.background = recovered ? 'rgba(16,185,129,0.08)' : invested ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.03)';
+    box.style.border = recovered ? '0.5px solid rgba(16,185,129,0.3)' : invested ? '0.5px solid rgba(245,158,11,0.2)' : 'none';
+  }
+
+  // ── 4) 正2再平衡監控（覆寫舊版固定列位置的數字）──
+  if (levMkt > 0) {
+    const total = levMkt + defMkt;
+    const lp = levPct != null ? levPct * 100 : levMkt / total * 100;
+    set('rebal-lev-mkt', money(levMkt));
+    set('rebal-def-mkt', money(defMkt));
+    set('rebal-total', money(total));
+    set('rebal-lev-pct', lp.toFixed(1) + '%');
+    const lb = document.getElementById('rebal-lev-bar'); if (lb) lb.style.width = Math.min(lp, 100) + '%';
+    const db = document.getElementById('rebal-def-bar'); if (db) db.style.width = Math.max(0, 100 - lp) + '%';
+  }
+  if (adjLev != null) set('rebal-adj-lev', (adjLev >= 0 ? '+' : '') + money(adjLev), adjLev > 0 ? 'var(--green)' : adjLev < 0 ? 'var(--red)' : 'var(--text-muted)');
+  if (adjDef != null) set('rebal-adj-def', (adjDef >= 0 ? '+' : '') + money(adjDef), adjDef > 0 ? 'var(--green)' : adjDef < 0 ? 'var(--red)' : 'var(--text-muted)');
+  set('rebal-eff-lev', effLev != null ? pct1(effLev) : '—', effLev > (cap || 2) ? 'var(--red)' : effLev > 1.6 ? 'var(--amber)' : 'var(--green)');
+  set('rebal-kelly', kelly || '—', statusColor(kelly.includes('🟢') ? '✅' : kelly.includes('🔴') ? '🔴' : '🔔'));
+  if (rebalSt) {
+    set('rebal-status', rebalSt, statusColor(rebalSt));
+    const card = document.getElementById('rebalCard');
+    if (card) card.style.borderColor = rebalSt.includes('✅') ? 'rgba(16,185,129,0.2)' : rebalSt.includes('🔴') ? 'rgba(244,63,94,0.35)' : 'rgba(245,158,11,0.3)';
+  }
+  const t = new Date(), y = (t.getMonth() === 11 && t.getDate() > 31) ? t.getFullYear() + 1 : t.getFullYear();
+  set('rebal-next-date', y + '/12/31');
+}
 
 function renderAddon(netCashRaw, taiexHighRaw, taiexNowRaw) {
   const netCash   = parseVal(netCashRaw);
