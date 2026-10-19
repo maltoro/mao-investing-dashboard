@@ -248,7 +248,7 @@
 
     <!-- RISK -->
   <div class="section-label">風險監控</div>
-  <div class="three-col">
+  <div class="two-col">
     <!-- 質押維持率儀表盤 -->
     <div class="card">
       <div class="card-title">質押維持率儀表盤</div>
@@ -280,11 +280,6 @@
         <span>報酬 <span id="foxconn-roi" style="color:var(--green)">—</span></span>
       </div>
     </div>
-    <!-- 加碼策略 -->
-    <div class="card">
-      <div class="card-title">加碼策略現況</div>
-      <div id="strategyPanel"></div>
-    </div>
   </div>
 
   <!-- ALLOCATION -->
@@ -301,7 +296,7 @@
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">下次查核：<span id="rebal-next-date" style="color:var(--blue)">—</span></div>
       </div>
     </div>
-    <div class="three-col">
+    <div class="two-col">
       <!-- 部位市值 -->
       <div style="background:var(--bg-card2);border-radius:8px;padding:1rem;">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:8px;">部位市值（策略六）</div>
@@ -333,10 +328,6 @@
           <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">上次查核：<span id="rebal-last-date" style="color:var(--text)">—</span></div>
         </div>
       </div>
-      <!-- 加碼策略狀態 -->
-      <div style="background:var(--bg-card2);border-radius:8px;padding:1rem;">
-        <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-bottom:8px;">加碼策略現況</div>
-        <div id="strategyPanel2"></div>
       </div>
     </div>
   </div>
@@ -929,14 +920,27 @@ function gc(grid, addr) {
   const r = grid[parseInt(m[2], 10) - 1];
   return r && r[col - 1] != null ? String(r[col - 1]).trim() : '';
 }
-function gn(grid, addr) {
-  const s = gc(grid, addr); if (!s) return null;
+function toNum(s) {
+  s = s == null ? '' : String(s).trim(); if (!s) return null;
   const neg = /^\(.*\)$/.test(s);
   const n = parseFloat(s.replace(/[NT$,%\s()（）]/g, '').replace('−', '-'));
   if (isNaN(n)) return null;
   let v = s.includes('%') ? n / 100 : n;
   return neg ? -v : v;
 }
+function gn(grid, addr) { return toNum(gc(grid, addr)); }
+// 在指定欄找「包含 label 文字」的列，回傳右邊 offset 欄的值
+function colIdx(L) { let c = 0; for (const ch of L) c = c * 26 + ch.charCodeAt(0) - 64; return c - 1; }
+function findRow(grid, labelCol, label) {
+  const c = colIdx(labelCol);
+  return grid.findIndex(r => r && r[c] != null && String(r[c]).replace(/\s/g,'').includes(label.replace(/\s/g,'')));
+}
+function lv(grid, labelCol, label, valCol) {
+  const r = findRow(grid, labelCol, label); if (r < 0) return '';
+  const v = grid[r][colIdx(valCol || String.fromCharCode(labelCol.charCodeAt(0) + 1))];
+  return v == null ? '' : String(v).trim();
+}
+const ln = (g, lc, label, vc) => toNum(lv(g, lc, label, vc));
 const money = v => v == null ? '—' : (v < 0 ? '-' : '') + 'NT$' + Math.abs(Math.round(v)).toLocaleString();
 const pct1  = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
 
@@ -951,56 +955,47 @@ function statusColor(s) {
 const STAGE_COLORS = ['#10b981', '#f59e0b', '#f97316', '#ef4444', '#dc2626', '#b91c1c'];
 
 function renderPlan(core, plan) {
-  // ── 加碼計畫分頁 ──
-  const prevHigh = gn(plan, 'B3'), now = gn(plan, 'B4');
-  const dd   = gn(plan, 'B5');               // 例：-0.0572
-  const base = gn(plan, 'B6'), pool = gn(plan, 'B7'), cap = gn(plan, 'B11');
+  // ── 加碼計畫分頁（依標題文字定位，空白列被略過也不會錯位）──
+  const prevHigh = ln(plan, 'A', '前高點位'), now = ln(plan, 'A', '目前台指');
+  const dd   = ln(plan, 'A', '目前回撤');
+  const base = ln(plan, 'A', '加碼基準金額'), pool = ln(plan, 'A', '目前防禦池');
+  const cap  = ln(plan, 'A', '有效槓桿上限');
+  const hdr  = findRow(plan, 'A', '批次');
   const batches = [];
-  for (let r = 16; r <= 20; r++) {
-    batches.push({
-      n: r - 15, trig: gn(plan, 'B' + r), point: gn(plan, 'C' + r), amt: gn(plan, 'D' + r),
-      s631: gn(plan, 'F' + r), s685: gn(plan, 'H' + r), lev: gn(plan, 'I' + r),
-      status: gc(plan, 'J' + r), actual: gn(plan, 'O' + r),
-    });
+  if (hdr >= 0) {
+    for (let r = hdr + 1; r < plan.length && batches.length < 5; r++) {
+      const row = plan[r] || [], n = toNum(row[0]);
+      if (n == null || n < 1 || n > 5) continue;
+      batches.push({
+        n, trig: toNum(row[1]), point: toNum(row[2]), amt: toNum(row[3]),
+        s631: toNum(row[5]), s685: toNum(row[7]), lev: toNum(row[8]),
+        status: String(row[9] || '').trim(), actual: toNum(row[14]),
+      });
+    }
   }
   const done = batches.filter(b => b.status.includes('已執行')).length;
-  const triggered = batches.filter(b => !b.status.includes('未觸發') && b.status !== '').length;
+  const triggered = batches.filter(b => b.status && !b.status.includes('未觸發')).length;
   const next = batches.find(b => b.status.includes('未觸發'));
-  const invested = gn(plan, 'B22'), exitSig = gc(plan, 'B29');
+  const invested = ln(plan, 'A', '已投入合計'), exitSig = lv(plan, 'A', '出場訊號');
 
-  // ── 核心資產總表 ──
-  const suggest = gc(core, 'S10');
-  const effLev = gn(core, 'J6'), kelly = gc(core, 'J7');
-  const adjLev = gn(core, 'M5'), adjDef = gn(core, 'M6'), rebalSt = gc(core, 'M7');
-  const levPct = gn(core, 'M3'), defPct = gn(core, 'M4');
+  // ── 核心資產總表（依標題文字定位）──
+  const suggest = lv(core, 'R', '建議操作');
+  const effLev = ln(core, 'I', '有效槓桿'), kelly = lv(core, 'I', '凱利檢查');
+  const levPct = ln(core, 'L', '正2占比'), defPct = ln(core, 'L', '00719B+現金占比');
+  const adjLev = ln(core, 'L', '正2調整金額'), adjDef = ln(core, 'L', '防禦資產調整金額');
+  const rebalSt = lv(core, 'L', '再平衡狀態');
+  const netSec = ln(core, 'O', '有價證券淨資產'), netAll = ln(core, 'O', '淨資產(現金+債卷)');
+  const batchTxt = lv(core, 'R', '加碼批次'), roiTxt = lv(core, 'R', '加碼報酬率'), valTxt = lv(core, 'R', '加碼部位現值');
   let levMkt = 0, def719 = 0;
-  for (let r = 13; r <= 30; r++) {
-    const code = gc(core, 'A' + r), mkt = gn(core, 'G' + r), lx = gn(core, 'I' + r);
+  const hRow = findRow(core, 'A', '代碼');
+  for (let r = (hRow >= 0 ? hRow + 1 : 12); r < core.length; r++) {
+    const row = core[r] || [], code = String(row[0] || ''), mkt = toNum(row[6]), lx = toNum(row[8]);
     if (!code || mkt == null) continue;
     if (lx === 2) levMkt += mkt;
     if (code.includes('00719B')) def719 += mkt;
   }
-  const cash = (gn(core, 'P6') || 0) - (gn(core, 'P5') || 0);
+  const cash = (netAll || 0) - (netSec || 0);
   const defMkt = def719 + cash;
-
-  // ── 1) 加碼策略現況（兩個面板）──
-  const ddAbs = Math.abs((dd || 0) * 100);
-  const stageIdx = Math.min(triggered, 5);
-  const color = STAGE_COLORS[stageIdx];
-  const stageLabel = triggered === 0 ? '正常（未觸發）'
-    : (done < triggered ? `第 ${triggered} 批已觸發` : `已執行 ${done} / 5 批`);
-  const panelHTML = `<div style="background:${color}22;border:0.5px solid ${color}55;border-radius:6px;padding:10px 12px;margin-bottom:10px;">
-      <div style="font-family:var(--mono);font-size:10px;color:${color};margin-bottom:4px;">目前加碼階段</div>
-      <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:${color};">${stageLabel}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:4px;">大盤回撤 ${ddAbs.toFixed(1)}%（前高 ${prevHigh ? Math.round(prevHigh).toLocaleString() : '—'}）${next ? '｜下一批 ' + Math.round(next.point).toLocaleString() : ''}</div>
-    </div>` + batches.map((b, i) => {
-      const c = STAGE_COLORS[i + 1], hit = !b.status.includes('未觸發');
-      return `<div class="data-row" style="${hit ? 'background:' + c + '11;border-radius:4px;padding:4px 8px;' : ''}">
-        <span class="data-key" style="color:${hit ? c : ''}">第${b.n}批 ${b.trig != null ? (b.trig * 100).toFixed(0) + '%' : ''}｜${b.point ? Math.round(b.point).toLocaleString() : '—'}</span>
-        <span style="font-family:var(--mono);font-size:10px;color:${statusColor(b.status)}">${b.status || '—'}</span>
-      </div>`;
-    }).join('');
-  ['strategyPanel', 'strategyPanel2'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = panelHTML; });
 
   // ── 2) 加碼金計算 ──
   const set = (id, txt, col) => { const el = document.getElementById(id); if (el) { el.textContent = txt; if (col) el.style.color = col; } };
@@ -1008,8 +1003,17 @@ function renderPlan(core, plan) {
   set('add-pool', money(pool));
   set('add-current-dd', dd != null ? (dd * 100).toFixed(1) + '%' : '—');
   set('add-trigger-status', suggest || '—', statusColor(suggest));
-  const lv = document.getElementById('add-levels');
-  if (lv) lv.innerHTML = batches.map((b, i) => {
+  const ddAbs = Math.abs((dd || 0) * 100);
+  const stColor = STAGE_COLORS[Math.min(triggered, 5)];
+  const stageLabel = triggered === 0 ? '正常（未觸發）'
+    : (done < triggered ? `第 ${triggered} 批已觸發，請執行` : `已執行 ${done} / 5 批`);
+  const stageHTML = `<div style="background:${stColor}22;border:0.5px solid ${stColor}55;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+      <div style="font-family:var(--mono);font-size:10px;color:${stColor};margin-bottom:2px;">目前加碼階段</div>
+      <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:${stColor};">${stageLabel}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:2px;">大盤回撤 ${ddAbs.toFixed(1)}%（前高 ${prevHigh ? Math.round(prevHigh).toLocaleString() : '—'}）${next ? '｜下一批 ' + Math.round(next.point).toLocaleString() : ''}</div>
+    </div>`;
+  const levelsEl = document.getElementById('add-levels');
+  if (levelsEl) levelsEl.innerHTML = stageHTML + (batches.length ? '' : '<div style="font-family:var(--mono);font-size:10px;color:var(--red);">讀不到加碼計畫的批次表（請確認 A 欄有「批次」標題）</div>') + batches.map((b, i) => {
     const c = STAGE_COLORS[i + 1], hit = !b.status.includes('未觸發');
     const shares = (b.s631 || b.s685) ? `00631L ${Math.round(b.s631 || 0).toLocaleString()} 股｜00685L ${Math.round(b.s685 || 0).toLocaleString()} 股` : '';
     return `<div style="padding:5px 0;border-bottom:0.5px solid var(--border);">
@@ -1025,10 +1029,10 @@ function renderPlan(core, plan) {
   }).join('') + `<div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-top:6px;">槓桿上限 ${cap ? pct1(cap) : '—'}，超過時狀態顯示 ⚠️</div>`;
 
   // ── 3) 加碼部位追蹤 ──
-  set('track-batch', gc(core, 'S3') || (done + ' / 5'));
+  set('track-batch', batchTxt || (done + ' / 5'));
   set('track-total', invested ? money(invested) : '—');
-  set('track-cost', gc(core, 'S5') || '—');
-  set('track-value', gc(core, 'S6') || '—');
+  set('track-cost', roiTxt || '—');
+  set('track-value', valTxt || '—');
   set('track-prev-high', prevHigh ? Math.round(prevHigh).toLocaleString() : '尚未填入');
   set('track-curr-high', now ? Math.round(now).toLocaleString() : '—');
   const box = document.getElementById('track-signal-box');
