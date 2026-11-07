@@ -1242,11 +1242,17 @@ function switchTrend(btn, mode) {
  * Yahoo Finance JSON API 為公開端點，不需 API Key
  */
 async function fetchMA(symbol, currentPrice, prefix) {
-  // 需要至少 240 個交易日的資料，抓近 400 天 (含假日)
-  const days = 400;
+  const days  = 400;
   const end   = Math.floor(Date.now() / 1000);
   const start = end - days * 86400;
-  const url   = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${start}&period2=${end}`;
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${start}&period2=${end}`;
+
+  // 多個 CORS proxy 備援，依序嘗試
+  const proxies = [
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+  ];
 
   const setLoading = (txt, cls) => {
     ['ma20','ma60','ma120','ma240'].forEach(m => {
@@ -1257,11 +1263,22 @@ async function fetchMA(symbol, currentPrice, prefix) {
     });
   };
 
+  // 嘗試每個 proxy，第一個成功的就用
+  let closes = null;
+  for (const makeUrl of proxies) {
+    try {
+      const res = await fetch(makeUrl(yahooUrl), { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) continue;
+      const raw  = await res.json();
+      // allorigins 回傳 {contents: "..."}，其他直接回傳 JSON
+      const data = raw?.contents ? JSON.parse(raw.contents) : raw;
+      const c = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+      if (c && c.length >= 20) { closes = c; break; }
+    } catch(_) { continue; }
+  }
+
   try {
-    const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    if (!closes) throw new Error('所有 proxy 均失敗');
     if (!closes || closes.length < 20) throw new Error('資料不足');
 
     // 過濾掉 null
