@@ -631,9 +631,8 @@ function renderCore(table) {
   document.getElementById('qqq-high').textContent   = qHigh ? qHigh.toFixed(2) : '—';
   document.getElementById('qqq-ret').textContent    = qqqRet ? (qqqRet * 100).toFixed(1) + '%' : ((qNow/qHigh-1)*100).toFixed(1) + '%';
 
-  // 均線乖離率（帶入 Sheets 現價，更精準）
-  fetchMA('^TWII', tNow || null, 'taiex');
-  fetchMA('QQQ',   qNow || null, 'qqq');
+  // 均線乖離率（從 Sheet「均線資料」分頁讀取）
+  fetchMAFromSheet(tNow || null, qNow || null);
 
   // 回測價位格
   const levels = [5, 10, 15, 20];
@@ -1237,83 +1236,54 @@ function switchTrend(btn, mode) {
 
 // ── 均線乖離率 ─────────────────────────────────────────
 /**
- * 透過 Yahoo Finance (query1) 抓取歷史收盤價，計算 MA20/60/120/240
- * TAIEX = ^TWII, QQQ = QQQ
- * Yahoo Finance JSON API 為公開端點，不需 API Key
+ * 均線乖離率：由 Apps Script 每日自動抓取並寫入「均線資料」分頁
+ * 格式：A=指標(TAIEX/QQQ) B=MA20 C=MA60 D=MA120 E=MA240 F=收盤 G=更新時間
  */
-async function fetchMA(symbol, currentPrice, prefix) {
-  // Stooq.com 支援 CORS，直接回傳 CSV，不需要 proxy
-  // TAIEX: ^twii → stooq 用 ^twii，QQQ 直接用 qqq
-  const stooqSym = symbol === '^TWII' ? '^twii' : symbol.toLowerCase();
-  const stooqUrl = `https://stooq.com/q/d/l/?s=${stooqSym}&i=d`;
-
-  const setLoading = (txt, cls) => {
+async function fetchMAFromSheet(taiexPrice, qqqPrice) {
+  const setAll = (prefix, txt) => {
     ['ma20','ma60','ma120','ma240'].forEach(m => {
-      const el = document.getElementById(`${prefix}-${m}-val`);
-      if (el) { el.textContent = txt; el.className = cls; }
-      const devEl = document.getElementById(`${prefix}-${m}-dev`);
-      if (devEl) devEl.textContent = '—';
+      const v = document.getElementById(`${prefix}-${m}-val`);
+      const d = document.getElementById(`${prefix}-${m}-dev`);
+      if (v) { v.textContent = txt; v.className = 'ma-loading'; }
+      if (d) d.textContent = '—';
     });
   };
-
-  let closes = null;
   try {
-    const res = await fetch(stooqUrl, { signal: AbortSignal.timeout(12000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const csv = await res.text();
-    // CSV 格式: Date,Open,High,Low,Close,Volume
-    const lines = csv.trim().split('\n').slice(1); // 去掉 header
-    if (lines.length < 20) throw new Error('資料不足');
-    // 取最近 400 筆，解析 Close 欄（index 4）
-    closes = lines.slice(-400).map(l => parseFloat(l.split(',')[4])).filter(v => !isNaN(v));
-    if (closes.length < 20) throw new Error('資料不足');
-  } catch(e) {
-    console.warn(`均線抓取失敗 (${symbol}):`, e.message);
-    setLoading('無法載入', 'ma-loading');
-    return;
-  }
-
-  try {
-
-    // 過濾掉 null
-    const prices = closes.filter(v => v != null);
-    const price  = currentPrice || prices[prices.length - 1];
-
-    const maOf = (n) => {
-      if (prices.length < n) return null;
-      const slice = prices.slice(-n);
-      return slice.reduce((a, b) => a + b, 0) / n;
+    const table = await fetchSheet('均線資料');
+    const data = {};
+    for (const row of (table?.rows || [])) {
+      const c = row.c || [];
+      const name = c[0]?.v;
+      if (!name) continue;
+      const num = (x) => (x?.v == null || isNaN(Number(x.v))) ? null : Number(x.v);
+      data[String(name).trim().toUpperCase()] = {
+        ma20: num(c[1]), ma60: num(c[2]), ma120: num(c[3]), ma240: num(c[4]), close: num(c[5]),
+      };
+    }
+    const render = (prefix, price, d, isInt) => {
+      if (!d) { setAll(prefix, '尚無資料'); return; }
+      const p = price || d.close;
+      ['ma20','ma60','ma120','ma240'].forEach(k => {
+        const ma = d[k];
+        const valEl = document.getElementById(`${prefix}-${k}-val`);
+        const devEl = document.getElementById(`${prefix}-${k}-dev`);
+        if (!valEl || !devEl) return;
+        if (ma == null) { valEl.textContent = '資料不足'; valEl.className = 'ma-loading'; devEl.textContent = '—'; return; }
+        valEl.textContent = isInt ? Math.round(ma).toLocaleString() : ma.toFixed(2);
+        valEl.className = '';
+        if (p) {
+          const dev = (p - ma) / ma * 100;
+          devEl.textContent = (dev >= 0 ? '+' : '') + dev.toFixed(2) + '%';
+          devEl.className = dev >= 0 ? 'ma-pos' : 'ma-neg';
+        }
+      });
     };
-
-    const defs = [
-      { key: 'ma20',  n: 20,  label: '月線' },
-      { key: 'ma60',  n: 60,  label: '季線' },
-      { key: 'ma120', n: 120, label: '半年' },
-      { key: 'ma240', n: 240, label: '年線' },
-    ];
-
-    defs.forEach(({ key, n }) => {
-      const ma  = maOf(n);
-      const valEl = document.getElementById(`${prefix}-${key}-val`);
-      const devEl = document.getElementById(`${prefix}-${key}-dev`);
-      if (!valEl || !devEl) return;
-
-      if (ma == null) {
-        valEl.textContent = '資料不足'; valEl.className = 'ma-loading';
-        devEl.textContent = '—'; return;
-      }
-
-      const dev = ((price - ma) / ma) * 100;
-      const isInt = prefix === 'taiex';
-      valEl.textContent = isInt ? Math.round(ma).toLocaleString() : ma.toFixed(2);
-      valEl.className = '';
-      devEl.textContent = (dev >= 0 ? '+' : '') + dev.toFixed(2) + '%';
-      devEl.className = dev >= 0 ? 'ma-pos' : 'ma-neg';
-    });
-
+    render('taiex', taiexPrice, data['TAIEX'], true);
+    render('qqq',   qqqPrice,   data['QQQ'],   false);
   } catch (e) {
-    console.warn(`均線抓取失敗 (${symbol}):`, e.message);
-    setLoading('無法載入', 'ma-loading');
+    console.warn('均線資料讀取失敗:', e.message);
+    setAll('taiex', '請先執行 Apps Script');
+    setAll('qqq',   '請先執行 Apps Script');
   }
 }
 
