@@ -369,7 +369,7 @@
     <div class="card">
       <div class="card-title">加碼金計算（從債券+現金提撥）</div>
       <div class="data-row">
-        <span class="data-key">債券+現金淨資產（P6）</span>
+        <span class="data-key">加碼金（00719B＋現金，E17+E19）</span>
         <span class="data-val" style="color:var(--blue)" id="add-base">—</span>
       </div>
       <div style="margin:10px 0 6px;font-family:var(--mono);font-size:10px;color:var(--text-muted);">大盤從高點回撤 → 加碼金額</div>
@@ -487,7 +487,12 @@ async function loadDashboard() {
     try {
       const cRows = coreTable.rows;
       const rc = (ri, ci) => { try { return cRows[ri] && cRows[ri].c[ci] ? cRows[ri].c[ci].v : null; } catch(e){ return null; } };
-      const netCash   = rc(3, 15);  // P6 現金+債券淨資產（P欄 = index 15）
+      // 加碼金 = E17（00719B 市值）+ E19（現金）
+      // gviz 列對應：試算表第 N 列 = rows[N-3]（S3 → rows[0]），E 欄 = index 4
+      const e17 = parseVal(rc(14, 4));
+      const e19 = parseVal(rc(16, 4));
+      console.log('加碼金來源 E17(00719B)=', rc(14, 4), ' E19(現金)=', rc(16, 4));
+      const netCash = (e17 != null || e19 != null) ? (e17 || 0) + (e19 || 0) : null;
       const taiexHigh = rc(0, 1);   // B3 台指高點(48218)
       const taiexNow  = rc(1, 1);   // B4 台指現點(45244)
       const r3 = rc(0, 18);  // S3→row0 加碼批次
@@ -982,8 +987,8 @@ function renderAddon(netCashRaw, taiexHighRaw, taiexNowRaw) {
 
   const baseEl = document.getElementById('add-base');
   if (!netCash) {
-    if (baseEl) baseEl.textContent = '讀不到 P6';
-    console.warn('加碼追蹤：P6 讀取為空，原始值 =', netCashRaw);
+    if (baseEl) baseEl.textContent = '讀不到 E17/E19';
+    console.warn('加碼追蹤：E17+E19 讀取為空，原始值 =', netCashRaw);
   } else if (baseEl) {
     baseEl.textContent = 'NT$' + Math.round(netCash).toLocaleString();
   }
